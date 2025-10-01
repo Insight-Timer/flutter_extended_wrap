@@ -1,4 +1,5 @@
 import 'package:flutter/rendering.dart';
+import 'package:flutter/scheduler.dart';
 import 'dart:math' as math;
 
 /// Created by elileo on 2021/12/3.
@@ -54,6 +55,7 @@ class ExtendedRenderWrap extends RenderBox
     int maxLines = 1,
     int minLines = 1,
     bool hasOverflow = false,
+    ValueChanged<int>? onVisibleChildrenCountChanged,
   })  : assert(maxLines >= 1),
         _direction = direction,
         _alignment = alignment,
@@ -66,6 +68,7 @@ class ExtendedRenderWrap extends RenderBox
         _maxLines = maxLines,
         _minLines = minLines,
         _hasOverflow = hasOverflow,
+        _onVisibleChildrenCountChanged = onVisibleChildrenCountChanged,
         _clipBehavior = clipBehavior {
     addAll(children);
   }
@@ -154,6 +157,13 @@ class ExtendedRenderWrap extends RenderBox
     if (_hasOverflow == value) return;
     _hasOverflow = value;
     markNeedsLayout();
+  }
+
+  ValueChanged<int>? get onVisibleChildrenCountChanged => _onVisibleChildrenCountChanged;
+  ValueChanged<int>? _onVisibleChildrenCountChanged;
+
+  set onVisibleChildrenCountChanged(ValueChanged<int>? value) {
+    _onVisibleChildrenCountChanged = value;
   }
 
   /// How the runs themselves should be placed in the cross axis.
@@ -700,6 +710,28 @@ class ExtendedRenderWrap extends RenderBox
 
     final int runCount = runMetrics.length;
     assert(runCount > 0);
+
+    // Calculate visible children count for callback
+    if (_onVisibleChildrenCountChanged != null) {
+      int visibleChildrenCount = 0;
+      RenderBox? child = firstChild;
+      while (child != null) {
+        final LimitWrapParentData childParentData = child.parentData as LimitWrapParentData;
+        if (!childParentData._isHide) {
+          visibleChildrenCount++;
+        }
+        child = childParentData.nextSibling;
+      }
+      
+      // Subtract 1 if we have an overflow widget since it's not a "content" child
+      if (hasOverflow && visibleChildrenCount > 0) {
+        visibleChildrenCount--;
+      }
+      
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        _onVisibleChildrenCountChanged?.call(visibleChildrenCount);
+      });
+    }
 
     double containerMainAxisExtent = 0.0;
     double containerCrossAxisExtent = 0.0;
