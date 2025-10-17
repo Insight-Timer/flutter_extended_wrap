@@ -590,55 +590,53 @@ class ExtendedRenderWrap extends RenderBox
       if (hasOverflow) {
         lastChild!.layout(childConstraints, parentUsesSize: true);
         final double overflowMainAxisExtent = _getMainAxisExtent(lastChild!.size);
-        // Check if we're processing the overflow widget (last child)
+        // Handle overflow widget visibility
         if (childParentData.nextSibling == null) {
-          // Count how many content children are actually visible
-          int visibleContentChildren = 0;
-          RenderBox? tempChild = firstChild;
-          while (tempChild != null && tempChild != lastChild) {
-            final LimitWrapParentData tempParentData = tempChild.parentData as LimitWrapParentData;
-            if (!tempParentData._isHide) {
-              visibleContentChildren++;
-            }
-            tempChild = tempParentData.nextSibling;
-          }
-          
-          // If all content items are visible or we're not at maxLines yet, hide overflow
-          bool allContentItemsFit = visibleContentChildren == (childCount - 1) && currentRowNumber < maxLines;
-          
-          if (isNeedHideOverflow || allContentItemsFit) {
-            lastChild!.layout(
-              BoxConstraints(maxWidth: 0, maxHeight: 0),
-              parentUsesSize: true,
-            );
-            childParentData._isHide = true;
+          if (_shouldHideOverflowWidget(isNeedHideOverflow)) {
+            _hideChild(lastChild!);
             child = null;
             continue;
           }
         }
 
+        // Hide content items that exceed maxLines
         if (currentRowNumber > maxLines && childParentData.nextSibling != null) {
           needCalculateSpace = false;
-          childParentData._isHide = true;
-          child.layout(BoxConstraints(maxWidth: 0, maxHeight: 0), parentUsesSize: true);
+          _hideChild(child);
           childMainAxisExtent = _getMainAxisExtent(child.size);
           childCrossAxisExtent = _getCrossAxisExtent(child.size);
         }
 
-        // Check if adding this child would require a new line
-        if (childCount > 0 && runMainAxisExtent + spacing + childMainAxisExtent > mainAxisLimit) {
-          // We need to wrap to a new line
-          if (currentRowNumber >= maxLines) {
-            // We're at max lines, so hide this child and all subsequent ones (except overflow)
+        if (childCount > 0 &&
+            runMainAxisExtent + spacing * 2 + childMainAxisExtent + overflowMainAxisExtent > mainAxisLimit) {
+          // Prevent overflow widget from going beyond maxLines
+          if (currentRowNumber >= maxLines && childParentData.nextSibling != null) {
+            // We're at maxLines, hide this child to make room for overflow widget
+            needCalculateSpace = false;
+            _hideChild(child);
+            childMainAxisExtent = _getMainAxisExtent(child.size);
+            childCrossAxisExtent = _getCrossAxisExtent(child.size);
+          } else if (crossAxisExtent + runCrossAxisExtent + childCrossAxisExtent >
+              (childCrossAxisExtent * maxLines + spacing * (maxLines - 1))) {
             if (childParentData.nextSibling != null) {
               needCalculateSpace = false;
-              childParentData._isHide = true;
-              child.layout(BoxConstraints(maxWidth: 0, maxHeight: 0), parentUsesSize: true);
+              if (childParentData.nextSibling == lastChild &&
+                  runMainAxisExtent + spacing + childMainAxisExtent <= mainAxisLimit) {
+                isNeedHideOverflow = true;
+              } else {
+                _hideChild(child);
+              }
               childMainAxisExtent = _getMainAxisExtent(child.size);
               childCrossAxisExtent = _getCrossAxisExtent(child.size);
+
+              currentRowNumber++;
+            } else if (currentRowNumber <= maxLines && maxLines == minLines) {
+              _hideChild(child);
             }
-          } else {
-            // We can wrap to the next line
+          } else if (childParentData.nextSibling == null && currentRowNumber <= maxLines && maxLines == minLines) {
+            _hideChild(child);
+          }
+          if (runMainAxisExtent + spacing + childMainAxisExtent > mainAxisLimit) {
             mainAxisExtent = math.max(mainAxisExtent, runMainAxisExtent);
             crossAxisExtent += runCrossAxisExtent;
             if (runMetrics.isNotEmpty) crossAxisExtent += runSpacing;
@@ -648,36 +646,16 @@ class ExtendedRenderWrap extends RenderBox
             childCount = 0;
             currentRowNumber++;
             
-            // After wrapping, check if we're now at maxLines and need to ensure overflow widget fits
-            if (currentRowNumber == maxLines && childParentData.nextSibling != null) {
-              // We're on the last allowed line, check if we can fit current child + overflow widget
-              if (childMainAxisExtent + spacing + overflowMainAxisExtent > mainAxisLimit) {
-                // Current child + overflow won't fit, hide this child
-                needCalculateSpace = false;
-                childParentData._isHide = true;
-                child.layout(BoxConstraints(maxWidth: 0, maxHeight: 0), parentUsesSize: true);
-                childMainAxisExtent = _getMainAxisExtent(child.size);
-                childCrossAxisExtent = _getCrossAxisExtent(child.size);
-              }
+            // After wrapping, ensure we don't exceed maxLines
+            if (currentRowNumber > maxLines && childParentData.nextSibling != null) {
+              needCalculateSpace = false;
+              _hideChild(child);
+              childMainAxisExtent = _getMainAxisExtent(child.size);
+              childCrossAxisExtent = _getCrossAxisExtent(child.size);
             }
           }
-        }
-        // Check if we're on the last line and need to ensure overflow widget can fit
-        else if (currentRowNumber == maxLines && childParentData.nextSibling != null) {
-          // Check if adding this child would leave no room for the overflow widget
-          if (runMainAxisExtent + spacing + childMainAxisExtent + spacing + overflowMainAxisExtent > mainAxisLimit) {
-            // Not enough space for this child + overflow widget, hide this child
-            needCalculateSpace = false;
-            childParentData._isHide = true;
-            child.layout(BoxConstraints(maxWidth: 0, maxHeight: 0), parentUsesSize: true);
-            childMainAxisExtent = _getMainAxisExtent(child.size);
-            childCrossAxisExtent = _getCrossAxisExtent(child.size);
-          }
-        }
-        // Special case: if this is the overflow widget itself and we're past maxLines, hide it
-        else if (childParentData.nextSibling == null && currentRowNumber > maxLines) {
-          childParentData._isHide = true;
-          child.layout(BoxConstraints(maxWidth: 0, maxHeight: 0), parentUsesSize: true);
+        } else if (childParentData.nextSibling == null && currentRowNumber <= maxLines && maxLines == minLines) {
+          _hideChild(child);
         }
       } else if (childCount > 0 && runMainAxisExtent + spacing + childMainAxisExtent > mainAxisLimit) {
         mainAxisExtent = math.max(mainAxisExtent, runMainAxisExtent);
@@ -874,6 +852,31 @@ class ExtendedRenderWrap extends RenderBox
       _clipRectLayer.layer = null;
       defaultPaint(context, offset);
     }
+  }
+
+  /// Helper method to check if any content items (excluding overflow widget) are hidden
+  bool _hasHiddenContentItems() {
+    RenderBox? child = firstChild;
+    while (child != null && child != lastChild) {
+      final LimitWrapParentData childParentData = child.parentData as LimitWrapParentData;
+      if (childParentData._isHide) {
+        return true;
+      }
+      child = childParentData.nextSibling;
+    }
+    return false;
+  }
+
+  /// Helper method to hide a child by setting zero constraints
+  void _hideChild(RenderBox child) {
+    final LimitWrapParentData childParentData = child.parentData as LimitWrapParentData;
+    childParentData._isHide = true;
+    child.layout(BoxConstraints(maxWidth: 0, maxHeight: 0), parentUsesSize: true);
+  }
+
+  /// Helper method to check if we should hide the overflow widget
+  bool _shouldHideOverflowWidget(bool isNeedHideOverflow) {
+    return isNeedHideOverflow || !_hasHiddenContentItems();
   }
 
   final LayerHandle<ClipRectLayer> _clipRectLayer = LayerHandle<ClipRectLayer>();
