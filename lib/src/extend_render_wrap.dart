@@ -315,6 +315,9 @@ class ExtendedRenderWrap extends RenderBox
   }
 
   bool get _debugHasNecessaryDirections {
+    // Skip direction checks if there are no children
+    if (firstChild == null) return true;
+    
     if (firstChild != null && lastChild != firstChild) {
       // i.e. there's more than one child
       switch (direction) {
@@ -366,6 +369,8 @@ class ExtendedRenderWrap extends RenderBox
 
   @override
   double computeMinIntrinsicWidth(double height) {
+    if (firstChild == null) return 0.0;
+    
     switch (direction) {
       case Axis.horizontal:
         double width = 0.0;
@@ -382,6 +387,8 @@ class ExtendedRenderWrap extends RenderBox
 
   @override
   double computeMaxIntrinsicWidth(double height) {
+    if (firstChild == null) return 0.0;
+    
     switch (direction) {
       case Axis.horizontal:
         double width = 0.0;
@@ -398,6 +405,8 @@ class ExtendedRenderWrap extends RenderBox
 
   @override
   double computeMinIntrinsicHeight(double width) {
+    if (firstChild == null) return 0.0;
+    
     switch (direction) {
       case Axis.horizontal:
         return computeDryLayout(BoxConstraints(maxWidth: width)).height;
@@ -414,6 +423,8 @@ class ExtendedRenderWrap extends RenderBox
 
   @override
   double computeMaxIntrinsicHeight(double width) {
+    if (firstChild == null) return 0.0;
+    
     switch (direction) {
       case Axis.horizontal:
         return computeDryLayout(BoxConstraints(maxWidth: width)).height;
@@ -480,6 +491,10 @@ class ExtendedRenderWrap extends RenderBox
   }
 
   Size _computeDryLayout(BoxConstraints constraints, [ChildLayouter layoutChild = ChildLayoutHelper.dryLayoutChild]) {
+    if (firstChild == null) {
+      return constraints.constrain(const Size(0.0, 0.0));
+    }
+    
     late BoxConstraints childConstraints;
     double mainAxisLimit = 0.0;
     switch (direction) {
@@ -535,6 +550,13 @@ class ExtendedRenderWrap extends RenderBox
     _hasVisualOverflow = false;
     RenderBox? child = firstChild;
     if (child == null) {
+      // Report zero visible children if callback exists
+      if (_onVisibleChildrenCountChanged != null && _lastReportedVisibleCount != 0) {
+        _lastReportedVisibleCount = 0;
+        SchedulerBinding.instance.addPostFrameCallback((_) {
+          _onVisibleChildrenCountChanged?.call(0);
+        });
+      }
       size = constraints.smallest;
       return;
     }
@@ -690,7 +712,21 @@ class ExtendedRenderWrap extends RenderBox
     }
 
     final int runCount = runMetrics.length;
-    assert(runCount > 0);
+    
+    // Handle case where there are no children or all children are hidden
+    if (runCount == 0) {
+      // Report zero visible children if callback exists
+      if (_onVisibleChildrenCountChanged != null && _lastReportedVisibleCount != 0) {
+        _lastReportedVisibleCount = 0;
+        SchedulerBinding.instance.addPostFrameCallback((_) {
+          _onVisibleChildrenCountChanged?.call(0);
+        });
+      }
+      
+      // Return minimal size when no runs exist
+      size = constraints.constrain(const Size(0.0, 0.0));
+      return;
+    }
 
     // Calculate visible children count for callback
     if (_onVisibleChildrenCountChanged != null) {
